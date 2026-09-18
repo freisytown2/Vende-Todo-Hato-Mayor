@@ -16,6 +16,10 @@ import {
   CheckCircle2,
   ArrowLeft,
   AlertTriangle,
+  User,
+  UserCheck,
+  Phone,
+  MessageCircle,
 } from 'lucide-react';
 
 export const PublishListing: React.FC = () => {
@@ -27,11 +31,17 @@ export const PublishListing: React.FC = () => {
     editingListing,
     setActiveView,
     showToast,
+    openAuthModal,
+    upgradeToSeller,
   } = useApp();
 
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const isEditing = Boolean(editingListing);
 
   // Form states
+  const [sellerName, setSellerName] = useState(
+    editingListing?.sellerName || currentUser?.name || ''
+  );
   const [title, setTitle] = useState(editingListing?.title || '');
   const [description, setDescription] = useState(editingListing?.description || '');
   const [price, setPrice] = useState(editingListing ? String(editingListing.price) : '');
@@ -70,6 +80,13 @@ export const PublishListing: React.FC = () => {
       setSector(activeSectors[0]);
     }
   }, [municipality, activeSectors, sector]);
+
+  // Pre-fill sellerName if user logs in or updates
+  useEffect(() => {
+    if (!sellerName && currentUser?.name && !isEditing) {
+      setSellerName(currentUser.name);
+    }
+  }, [currentUser, isEditing, sellerName]);
 
   // Handle image upload from file input
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,6 +132,10 @@ export const PublishListing: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!sellerName.trim()) {
+      showToast('Por favor escribe tu nombre o el de tu negocio');
+      return;
+    }
     if (!title.trim()) {
       showToast('Por favor escribe el título del artículo');
       return;
@@ -144,6 +165,7 @@ export const PublishListing: React.FC = () => {
         price: numPrice,
         categoryId,
         condition,
+        sellerName: sellerName.trim(),
         phone: phone.trim(),
         whatsapp: whatsapp.trim() || phone.trim(),
         municipality,
@@ -160,6 +182,7 @@ export const PublishListing: React.FC = () => {
         price: numPrice,
         categoryId,
         condition,
+        sellerName: sellerName.trim(),
         phone: phone.trim(),
         whatsapp: whatsapp.trim() || phone.trim(),
         province: 'Hato Mayor',
@@ -173,6 +196,84 @@ export const PublishListing: React.FC = () => {
     }
   };
 
+  if (!currentUser) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xs">
+          <UserCheck className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+          Registro Obligatorio para Publicar
+        </h2>
+        <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+          Para garantizar la seguridad y confianza de la comunidad en Hato Mayor del Rey, El Valle y Sabana de la Mar, debes iniciar sesión o registrarte antes de publicar tu artículo.
+        </p>
+        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button
+            onClick={() => openAuthModal('register')}
+            className="w-full sm:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+          >
+            Registrarme Gratis
+          </button>
+          <button
+            onClick={() => openAuthModal('login')}
+            className="w-full sm:w-auto px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl transition-all cursor-pointer"
+          >
+            Ya tengo cuenta (Iniciar sesión)
+          </button>
+        </div>
+        <div className="mt-8">
+          <button
+            onClick={() => setActiveView('home')}
+            className="text-xs font-semibold text-slate-500 hover:text-emerald-600 inline-flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Volver al inicio</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is registered as a Buyer, prompt them to activate seller mode
+  if (currentUser.userType === 'buyer' && currentUser.role !== 'admin') {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xs">
+          <Store className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+          Activa tu Cuenta de Vendedor
+        </h2>
+        <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+          Hola <strong className="text-slate-900">{currentUser.name}</strong>, tu cuenta está actualmente configurada como <strong className="text-emerald-700">Comprador</strong>. Para poder publicar productos o servicios y gestionarlos, activa tu perfil de vendedor con un solo toque (es 100% gratuito).
+        </p>
+        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button
+            disabled={isUpgrading}
+            onClick={async () => {
+              setIsUpgrading(true);
+              try {
+                await upgradeToSeller();
+              } finally {
+                setIsUpgrading(false);
+              }
+            }}
+            className="w-full sm:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+          >
+            {isUpgrading ? 'Activando modo vendedor...' : '🛍️ Activar Perfil de Vendedor'}
+          </button>
+          <button
+            onClick={() => setActiveView('home')}
+            className="w-full sm:w-auto px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl transition-all cursor-pointer"
+          >
+            Continuar como Comprador
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -185,7 +286,7 @@ export const PublishListing: React.FC = () => {
           <span>Cancelar y volver</span>
         </button>
         <span className="text-xs text-slate-400">
-          Vendedor: <strong className="text-slate-800">{currentUser?.name}</strong>
+          Publicando como: <strong className="text-slate-800">{sellerName.trim() || currentUser?.name || 'Vendedor'}</strong>
         </span>
       </div>
 
@@ -373,33 +474,76 @@ export const PublishListing: React.FC = () => {
             />
           </div>
 
-          {/* Contact Numbers: Phone and WhatsApp */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
-                Teléfono de contacto para llamadas <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Ej. 8095530000 ó 829..."
-                required
-                className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-              />
+          {/* Seller Information & Contact Numbers */}
+          <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-5">
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-emerald-600 shrink-0" />
+              <h3 className="text-sm font-bold text-slate-900">
+                Datos del Vendedor y Contacto
+              </h3>
             </div>
+            <p className="text-xs text-slate-500">
+              Coloca el nombre con el que deseas que aparezca tu publicación y por el que te llamarán o escribirán los compradores.
+            </p>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
-                Número de WhatsApp (mensajes directos)
-              </label>
-              <input
-                type="tel"
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-                placeholder="Ej. 8296458890"
-                className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-              />
+            <div className="space-y-4">
+              {/* Custom Seller Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
+                  Tu Nombre o Nombre de tu Negocio / Tienda <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={sellerName}
+                    onChange={(e) => setSellerName(e.target.value)}
+                    placeholder="Ej. Daniel Evangelista, Colmado La Fe, Juan Pérez..."
+                    maxLength={60}
+                    required
+                    className="w-full text-sm bg-white border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none font-medium shadow-2xs"
+                  />
+                  <UserCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                </div>
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Puedes poner tu nombre personal, tu apodo o el nombre comercial de tu negocio.
+                </span>
+              </div>
+
+              {/* Phone and WhatsApp */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
+                    Teléfono para llamadas <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="Ej. 809-553-0000"
+                      required
+                      className="w-full text-sm bg-white border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none font-medium shadow-2xs"
+                    />
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1.5 uppercase tracking-wider">
+                    Número de WhatsApp (mensajes directos)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={whatsapp}
+                      onChange={(e) => setWhatsapp(e.target.value)}
+                      placeholder="Ej. 829-645-8890"
+                      className="w-full text-sm bg-white border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none font-medium shadow-2xs"
+                    />
+                    <MessageCircle className="w-4 h-4 text-emerald-600 absolute left-3.5 top-3" />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

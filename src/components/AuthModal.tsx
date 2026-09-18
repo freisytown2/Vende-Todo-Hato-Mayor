@@ -4,65 +4,80 @@ import { MUNICIPALITIES } from '../data/initialData';
 import { X, LogIn, UserPlus, ShieldCheck, Phone, Mail, MapPin } from 'lucide-react';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, closeAuthModal, login, register, showToast } = useApp();
+  const { isAuthModalOpen, closeAuthModal, login, register, showToast, authModalTab, intendedActionAfterAuth } = useApp();
   const [tab, setTab] = useState<'login' | 'register'>('login');
 
-  // Login inputs
-  const [loginEmail, setLoginEmail] = useState('carlos@hatomayor.do');
-  const [loginPassword, setLoginPassword] = useState('123456');
+  // Login inputs initialized empty (no confusing demo emails)
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Register inputs
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [userType, setUserType] = useState<'seller' | 'buyer'>('seller');
   const [municipality, setMunicipality] = useState('Hato Mayor del Rey');
   const [sector, setSector] = useState('Las Malvinas');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync tab if modal was opened requesting register tab
+  React.useEffect(() => {
+    if (authModalTab) {
+      setTab(authModalTab);
+    }
+    if (intendedActionAfterAuth === 'publish') {
+      setUserType('seller');
+    }
+  }, [authModalTab, intendedActionAfterAuth]);
 
   if (!isAuthModalOpen) return null;
 
   const sectors =
     MUNICIPALITIES.find((m) => m.name === municipality)?.sectors || MUNICIPALITIES[0].sectors;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = login(loginEmail, loginPassword);
-    if (!success) {
-      showToast('Credenciales incorrectas');
+    if (!loginEmail.trim() || !loginPassword.trim()) {
+      showToast('Ingresa tu correo y contraseña');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const success = await login(loginEmail.trim(), loginPassword);
+      if (!success) {
+        showToast('Credenciales incorrectas. Verifica tu correo y contraseña.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !phone.trim() || !password.trim()) {
       showToast('Por favor completa todos los campos requeridos');
       return;
     }
 
-    const success = register(
-      name.trim(),
-      email.trim(),
-      phone.trim(),
-      sector,
-      municipality,
-      password.trim()
-    );
+    setIsSubmitting(true);
+    try {
+      const success = await register(
+        name.trim(),
+        email.trim(),
+        phone.trim(),
+        sector,
+        municipality,
+        password.trim(),
+        userType
+      );
 
-    if (success) {
-      closeAuthModal();
-    }
-  };
-
-  // Demo accounts helper
-  const fillQuickAccount = (role: 'seller' | 'admin') => {
-    if (role === 'seller') {
-      setTab('login');
-      setLoginEmail('carlos@hatomayor.do');
-      setLoginPassword('123456');
-    } else {
-      setTab('login');
-      setLoginEmail('admin@hatomayor.do');
-      setLoginPassword('123456');
+      if (success) {
+        closeAuthModal();
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -116,14 +131,14 @@ export const AuthModal: React.FC = () => {
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Correo electrónico o teléfono
+                Correo electrónico
               </label>
               <div className="relative">
                 <input
-                  type="text"
+                  type="email"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="ejemplo@hatomayor.do"
+                  placeholder="tu-correo@ejemplo.com"
                   required
                   className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500 font-medium"
                 />
@@ -137,7 +152,7 @@ export const AuthModal: React.FC = () => {
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="••••••"
+                placeholder="Ingresa tu contraseña"
                 required
                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500"
               />
@@ -145,32 +160,23 @@ export const AuthModal: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer mt-2"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer mt-2 disabled:opacity-50"
             >
-              Iniciar Sesión
+              {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
             </button>
 
-            {/* Quick Demo Switcher */}
-            <div className="pt-4 border-t border-slate-100 text-center">
-              <span className="text-[11px] text-slate-400 block mb-2 font-medium">
-                Cuentas de demostración rápida:
-              </span>
-              <div className="flex justify-center gap-2">
+            <div className="text-center pt-2">
+              <p className="text-xs text-slate-500">
+                ¿No tienes una cuenta aún?{' '}
                 <button
                   type="button"
-                  onClick={() => fillQuickAccount('seller')}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold"
+                  onClick={() => setTab('register')}
+                  className="text-emerald-600 font-bold hover:underline cursor-pointer"
                 >
-                  👤 Vendedor (Carlos)
+                  Regístrate gratis
                 </button>
-                <button
-                  type="button"
-                  onClick={() => fillQuickAccount('admin')}
-                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-[11px] font-bold border border-amber-200"
-                >
-                  👑 Administrador Hato Mayor
-                </button>
-              </div>
+              </p>
             </div>
           </form>
         ) : (
@@ -247,6 +253,43 @@ export const AuthModal: React.FC = () => {
               </div>
             </div>
 
+            {/* Account Type (Vendedor vs Comprador) */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Tipo de cuenta
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUserType('seller')}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    userType === 'seller'
+                      ? 'border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500 text-emerald-950'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <span className="font-extrabold text-xs block text-slate-900">🛍️ Vendedor</span>
+                  <span className="text-[10px] text-slate-500 block leading-tight mt-0.5">
+                    Publicar y vender artículos
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserType('buyer')}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    userType === 'buyer'
+                      ? 'border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500 text-emerald-950'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <span className="font-extrabold text-xs block text-slate-900">🛒 Comprador</span>
+                  <span className="text-[10px] text-slate-500 block leading-tight mt-0.5">
+                    Buscar y contactar vendedores
+                  </span>
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Crear Contraseña</label>
               <input
@@ -266,10 +309,24 @@ export const AuthModal: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer disabled:opacity-50"
             >
-              Completar Registro Gratuito
+              {isSubmitting ? 'Registrando...' : 'Completar Registro Gratuito'}
             </button>
+
+            <div className="text-center pt-2">
+              <p className="text-xs text-slate-500">
+                ¿Ya tienes una cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={() => setTab('login')}
+                  className="text-emerald-600 font-bold hover:underline cursor-pointer"
+                >
+                  Inicia sesión aquí
+                </button>
+              </p>
+            </div>
           </form>
         )}
       </div>

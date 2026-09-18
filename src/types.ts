@@ -43,7 +43,11 @@ export interface Listing {
   views: number;
   isFeatured?: boolean;
   isApproved: boolean;
+  updatedAt?: string;
+  sellerRole?: 'seller' | 'buyer';
 }
+
+export type UserType = 'seller' | 'buyer';
 
 export interface User {
   id: string;
@@ -53,6 +57,7 @@ export interface User {
   sector: string;
   municipality: string;
   avatar?: string;
+  userType: UserType; // 'seller' = puede publicar y gestionar | 'buyer' = explora, busca y contacta
   role: 'user' | 'admin';
   isSuspended: boolean;
   joinedDate: string;

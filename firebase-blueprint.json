@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Perfil de usuario (vendedor o comprador) en Vende Todo en Hato Mayor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "sector": { "type": "string" },
+        "municipality": { "type": "string" },
+        "userType": { "type": "string", "enum": ["seller", "buyer"] },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "isSuspended": { "type": "boolean" },
+        "joinedDate": { "type": "string" },
+        "favorites": { "type": "array" }
+      },
+      "required": ["id", "name", "email", "phone", "userType", "role"]
+    },
+    "Listing": {
+      "title": "Listing",
+      "description": "Publicación de artículo para compra o venta en Hato Mayor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "categoryId": { "type": "string" },
+        "condition": { "type": "string" },
+        "images": { "type": "array" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "province": { "type": "string" },
+        "municipality": { "type": "string" },
+        "sector": { "type": "string" },
+        "meetingPlaceType": { "type": "string" },
+        "meetingPlaceDetails": { "type": "string" },
+        "status": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "sellerRole": { "type": "string" },
+        "sellerJoinedDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "views": { "type": "number" },
+        "isFeatured": { "type": "boolean" },
+        "isApproved": { "type": "boolean" }
+      },
+      "required": ["id", "title", "price", "categoryId", "sellerId", "sellerName", "phone"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Perfiles de usuarios y datos de cuenta"
+    },
+    "/listings/{listingId}": {
+      "schema": "Listing",
+      "description": "Catálogo público de publicaciones compartidas en tiempo real"
+    }
+  }
+}

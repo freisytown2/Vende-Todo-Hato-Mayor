@@ -43,6 +43,7 @@ export const ListingDetail: React.FC = () => {
     deleteListing,
     changeListingStatus,
     logContact,
+    isMyListing,
   } = useApp();
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -66,7 +67,7 @@ export const ListingDetail: React.FC = () => {
     );
   }
 
-  const isOwner = currentUser?.id === listing.sellerId;
+  const isOwner = isMyListing(listing);
   const isAdmin = currentUser?.role === 'admin';
   const favorite = isFavorite(listing.id);
 

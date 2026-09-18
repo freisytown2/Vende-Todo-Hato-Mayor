@@ -137,11 +137,32 @@ export const HomeView: React.FC = () => {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {recentListings.slice(0, 8).map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
-          </div>
+          {recentListings.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {recentListings.slice(0, 8).map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border-2 border-dashed border-slate-200 p-8 sm:p-14 text-center max-w-2xl mx-auto shadow-xs">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+                <PlusCircle className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-extrabold text-slate-900 mb-2">
+                ¡Sé el primero en vender algo en Hato Mayor!
+              </h3>
+              <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
+                Aún no hay publicaciones activas. Sube tus fotos, pon tu precio y número de contacto. Los compradores locales te llamarán o escribirán por WhatsApp.
+              </p>
+              <button
+                onClick={openPublishModal}
+                className="px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-sm rounded-2xl shadow-lg shadow-emerald-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
+              >
+                <PlusCircle className="w-5 h-5" />
+                <span>Publicar mi primer artículo ahora</span>
+              </button>
+            </div>
+          )}
         </section>
 
         {/* Local Safety & Community Guarantee Banner */}

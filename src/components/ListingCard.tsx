@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   Clock,
   Sparkles,
+  Share2,
+  Trash2,
 } from 'lucide-react';
 
 interface ListingCardProps {
@@ -19,8 +21,9 @@ interface ListingCardProps {
 }
 
 export const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
-  const { openListingDetail, toggleFavorite, isFavorite, logContact } = useApp();
+  const { openListingDetail, toggleFavorite, isFavorite, logContact, openShareModal, deleteListing, currentUser } = useApp();
   const favorite = isFavorite(listing.id);
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.email?.toLowerCase() === 'viralatoa@gmail.com';
 
   const handleWhatsAppClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -32,6 +35,18 @@ export const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     toggleFavorite(listing.id);
+  };
+
+  const handleShareClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openShareModal(listing);
+  };
+
+  const handleAdminDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`¿Administrador, deseas eliminar permanentemente "${listing.title}"?`)) {
+      deleteListing(listing.id);
+    }
   };
 
   // Meeting place icon & badge styling
@@ -103,18 +118,40 @@ export const ListingCard: React.FC<ListingCardProps> = ({ listing }) => {
           )}
         </div>
 
-        {/* Favorite Heart Button */}
-        <button
-          onClick={handleFavoriteClick}
-          aria-label={favorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-          className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md shadow-md transition-transform active:scale-90 z-10 ${
-            favorite
-              ? 'bg-rose-500 text-white shadow-rose-500/30'
-              : 'bg-white/85 text-slate-700 hover:text-rose-500 hover:bg-white'
-          }`}
-        >
-          <Heart className={`w-4 h-4 ${favorite ? 'fill-current' : ''}`} />
-        </button>
+        {/* Action buttons top right: Admin Delete, Share, Favorite */}
+        <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+          {isAdmin && (
+            <button
+              onClick={handleAdminDelete}
+              aria-label="Eliminar publicación"
+              title="Eliminar publicación (Solo Administrador)"
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white shadow-md transition-transform active:scale-90"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <button
+            onClick={handleShareClick}
+            aria-label="Compartir publicación"
+            title="Compartir publicación"
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-white/90 hover:bg-white text-slate-700 hover:text-emerald-600 backdrop-blur-md shadow-md transition-transform active:scale-90"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={handleFavoriteClick}
+            aria-label={favorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+            className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md shadow-md transition-transform active:scale-90 ${
+              favorite
+                ? 'bg-rose-500 text-white shadow-rose-500/30'
+                : 'bg-white/90 text-slate-700 hover:text-rose-500 hover:bg-white'
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${favorite ? 'fill-current' : ''}`} />
+          </button>
+        </div>
 
         {/* Status Overlay if Sold or Reserved */}
         {listing.status === 'Vendido' && (

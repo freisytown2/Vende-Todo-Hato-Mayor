@@ -38,6 +38,8 @@ export const AdminPanel: React.FC = () => {
     openListingDetail,
     openEditListing,
     showToast,
+    setActiveView,
+    openAuthModal,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
@@ -85,6 +87,26 @@ export const AdminPanel: React.FC = () => {
     setNewCatName('');
     setNewCatDesc('');
   };
+
+  if (!currentUser || currentUser.role !== 'admin') {
+    return (
+      <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-3xl border border-slate-200 text-center shadow-sm">
+        <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Lock className="w-7 h-7" />
+        </div>
+        <h2 className="text-xl font-black text-slate-800">Acceso Restringido</h2>
+        <p className="text-sm text-slate-500 mt-2 mb-6">
+          Esta sección está reservada exclusivamente para la administración central de Vende Todo en Hato Mayor.
+        </p>
+        <button
+          onClick={() => (currentUser ? setActiveView('home') : openAuthModal('login'))}
+          className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm cursor-pointer"
+        >
+          {currentUser ? 'Volver al inicio' : 'Iniciar sesión como administrador'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

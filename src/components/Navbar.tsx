@@ -27,6 +27,7 @@ export const Navbar: React.FC = () => {
     filters,
     setSearchQuery,
     resetFilters,
+    isLiveConnected,
   } = useApp();
 
   const [localSearch, setLocalSearch] = useState(filters.searchQuery);
@@ -53,26 +54,14 @@ export const Navbar: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 font-semibold" title="Sincronización en tiempo real activa">
+              <span className={`w-2 h-2 rounded-full ${isLiveConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span>{isLiveConnected ? 'En vivo' : 'Sincronizando'}</span>
+            </div>
+
             <span className="hidden sm:inline text-slate-400">
               🔒 Encuentros seguros en lugares públicos recomendados
             </span>
-
-            {/* Quick account switch for review/testing */}
-            <div className="flex items-center gap-1.5 bg-slate-800/90 rounded px-2 py-0.5 text-xs">
-              <span className="text-slate-400">Cuenta:</span>
-              <select
-                aria-label="Seleccionar cuenta de usuario para pruebas"
-                value={currentUser?.id || ''}
-                onChange={(e) => switchUserAccount(e.target.value)}
-                className="bg-transparent text-emerald-300 font-medium outline-none cursor-pointer text-xs"
-              >
-                {allUsers.map((u) => (
-                  <option key={u.id} value={u.id} className="bg-slate-900 text-white">
-                    {u.name.split(' ')[0]} ({u.role === 'admin' ? '👑 Admin' : 'Vendedor'})
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
         </div>
       </div>
@@ -195,25 +184,54 @@ export const Navbar: React.FC = () => {
                 </button>
 
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 text-sm z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="absolute right-0 mt-2 w-60 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 text-sm z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                     <div className="px-3.5 py-2.5 border-b border-slate-700">
                       <p className="font-semibold text-white truncate">{currentUser.name}</p>
                       <p className="text-xs text-slate-400 truncate">{currentUser.email}</p>
                       <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        {currentUser.role === 'admin' ? 'Administrador' : 'Vendedor Verificado'}
+                        {currentUser.role === 'admin'
+                          ? '👑 Administrador'
+                          : currentUser.userType === 'buyer'
+                          ? '🛒 Comprador'
+                          : '🛍️ Vendedor Verificado'}
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setActiveView('user-dashboard');
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="w-full text-left px-3.5 py-2 hover:bg-slate-700 flex items-center gap-2 text-slate-200"
-                    >
-                      <Store className="w-4 h-4 text-emerald-400" />
-                      <span>Mi Panel de Vendedor</span>
-                    </button>
+                    {currentUser.userType === 'buyer' && currentUser.role !== 'admin' ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            setActiveView('user-dashboard');
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full text-left px-3.5 py-2 hover:bg-slate-700 flex items-center gap-2 text-slate-200"
+                        >
+                          <UserIcon className="w-4 h-4 text-emerald-400" />
+                          <span>Mi Perfil de Comprador</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            openPublishModal();
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full text-left px-3.5 py-2 hover:bg-slate-700 flex items-center gap-2 text-emerald-300 font-medium"
+                        >
+                          <PlusCircle className="w-4 h-4 text-emerald-400" />
+                          <span>Activar modo Vendedor</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setActiveView('user-dashboard');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-slate-700 flex items-center gap-2 text-slate-200"
+                      >
+                        <Store className="w-4 h-4 text-emerald-400" />
+                        <span>Mi Panel de Vendedor</span>
+                      </button>
+                    )}
 
                     <button
                       onClick={() => {
@@ -246,7 +264,7 @@ export const Navbar: React.FC = () => {
                         logout();
                         setIsUserMenuOpen(false);
                       }}
-                      className="w-full text-left px-3.5 py-2 hover:bg-red-500/10 text-red-400 flex items-center gap-2 text-sm"
+                      className="w-full text-left px-3.5 py-2 hover:bg-red-500/10 text-red-400 flex items-center gap-2 text-sm font-semibold"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>Cerrar sesión</span>
@@ -278,7 +296,7 @@ export const Navbar: React.FC = () => {
 
       {/* Mobile search bar and quick drawer */}
       {isMobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-800 bg-slate-900/95 px-4 py-3 space-y-3">
+        <div className="md:hidden border-t border-slate-800 bg-slate-900/98 px-4 py-3 space-y-3">
           <form onSubmit={handleSearchSubmit} className="relative">
             <input
               type="text"
@@ -295,6 +313,46 @@ export const Navbar: React.FC = () => {
               Buscar
             </button>
           </form>
+
+          {/* User profile card in mobile drawer */}
+          {currentUser ? (
+            <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white leading-tight">{currentUser.name}</p>
+                  <p className="text-xs text-slate-400">{currentUser.email}</p>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  {currentUser.role === 'admin'
+                    ? '👑 Admin'
+                    : currentUser.userType === 'buyer'
+                    ? '🛒 Comprador'
+                    : '🛍️ Vendedor'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={() => {
+                  openAuthModal('login');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-slate-700"
+              >
+                Iniciar Sesión
+              </button>
+              <button
+                onClick={() => {
+                  openAuthModal('register');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md"
+              >
+                Crear Cuenta
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2 text-xs pt-1">
             <button
@@ -315,31 +373,56 @@ export const Navbar: React.FC = () => {
             >
               Explorar Todo
             </button>
-            <button
-              onClick={() => {
-                if (currentUser) {
-                  setActiveView('user-dashboard');
-                } else {
-                  openAuthModal('login');
-                }
-                setIsMobileMenuOpen(false);
-              }}
-              className="p-2.5 rounded-lg bg-slate-800 text-center font-medium text-slate-200"
-            >
-              Mis Publicaciones
-            </button>
+            {currentUser && (
+              <>
+                <button
+                  onClick={() => {
+                    setActiveView('user-dashboard');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="p-2.5 rounded-lg bg-slate-800 text-center font-medium text-slate-200"
+                >
+                  {currentUser.userType === 'buyer' ? 'Mi Perfil' : 'Mis Publicaciones'}
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveView('favorites');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="p-2.5 rounded-lg bg-slate-800 text-center font-medium text-slate-200"
+                >
+                  Favoritos ({favoriteCount})
+                </button>
+              </>
+            )}
             {currentUser?.role === 'admin' && (
               <button
                 onClick={() => {
                   setActiveView('admin-panel');
                   setIsMobileMenuOpen(false);
                 }}
-                className="p-2.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-center"
+                className="col-span-2 p-2.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-center"
               >
-                Panel Admin
+                👑 Panel de Control Admin
               </button>
             )}
           </div>
+
+          {/* Explicit mobile logout button */}
+          {currentUser && (
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  logout();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Cerrar sesión</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </header>

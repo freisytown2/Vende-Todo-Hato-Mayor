@@ -19,6 +19,7 @@ import {
   Settings,
   Eye,
   CheckCheck,
+  Store,
 } from 'lucide-react';
 
 export const UserDashboard: React.FC = () => {
@@ -34,10 +35,15 @@ export const UserDashboard: React.FC = () => {
     setActiveView,
     allUsers,
     showToast,
+    updateUserProfile,
+    isMyListing,
+    openAuthModal,
+    upgradeToSeller,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'my-listings' | 'favorites' | 'contacts' | 'profile'>('my-listings');
   const [listingFilter, setListingFilter] = useState<'all' | 'available' | 'sold'>('all');
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   // Edit profile state
   const [profileName, setProfileName] = useState(currentUser?.name || '');
@@ -47,23 +53,34 @@ export const UserDashboard: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-3xl border border-slate-200 text-center">
-        <h2 className="text-xl font-bold text-slate-800">Inicia sesión</h2>
-        <p className="text-sm text-slate-500 mt-2">
-          Debes iniciar sesión para acceder a tu panel de usuario y vendedor.
+      <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-3xl border border-slate-200 text-center shadow-sm">
+        <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <UserIcon className="w-7 h-7" />
+        </div>
+        <h2 className="text-xl font-black text-slate-800">Panel de Usuario</h2>
+        <p className="text-sm text-slate-500 mt-2 mb-6">
+          Inicia sesión o publica tu primer artículo para gestionar tus ventas en Hato Mayor.
         </p>
-        <button
-          onClick={() => setActiveView('home')}
-          className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold"
-        >
-          Ir al inicio
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => openAuthModal('login')}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold shadow-sm"
+          >
+            Iniciar sesión / Registrarse
+          </button>
+          <button
+            onClick={openPublishModal}
+            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-sm font-bold"
+          >
+            Publicar un artículo ahora
+          </button>
+        </div>
       </div>
     );
   }
 
   // User's own listings
-  const myListings = listings.filter((l) => l.sellerId === currentUser.id);
+  const myListings = listings.filter((l) => (currentUser && l.sellerId === currentUser.id) || isMyListing(l));
   const displayedListings = myListings.filter((l) => {
     if (listingFilter === 'available') return l.status !== 'Vendido';
     if (listingFilter === 'sold') return l.status === 'Vendido';
@@ -78,11 +95,16 @@ export const UserDashboard: React.FC = () => {
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    currentUser.name = profileName;
-    currentUser.phone = profilePhone;
-    currentUser.sector = profileSector;
-    currentUser.municipality = profileMuni;
-    showToast('Perfil actualizado correctamente');
+    if (!profileName.trim()) {
+      showToast('Por favor escribe tu nombre');
+      return;
+    }
+    updateUserProfile({
+      name: profileName.trim(),
+      phone: profilePhone.trim(),
+      sector: profileSector,
+      municipality: profileMuni,
+    });
   };
 
   return (
@@ -97,7 +119,11 @@ export const UserDashboard: React.FC = () => {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-black text-white">{currentUser.name}</h1>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                {currentUser.role === 'admin' ? 'Administrador' : 'Vendedor Verificado'}
+                {currentUser.role === 'admin'
+                  ? '👑 Administrador'
+                  : currentUser.userType === 'buyer'
+                  ? '🛒 Comprador'
+                  : '🛍️ Vendedor Verificado'}
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-1 flex items-center gap-2">
@@ -114,14 +140,58 @@ export const UserDashboard: React.FC = () => {
         </div>
 
         {/* Quick Action */}
-        <button
-          onClick={openPublishModal}
-          className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-sm rounded-xl shadow-md transition-all cursor-pointer"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Publicar Nuevo Artículo</span>
-        </button>
+        {currentUser.userType === 'buyer' && currentUser.role !== 'admin' ? (
+          <button
+            disabled={isUpgrading}
+            onClick={async () => {
+              setIsUpgrading(true);
+              try {
+                await upgradeToSeller();
+              } finally {
+                setIsUpgrading(false);
+              }
+            }}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-sm rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Store className="w-4 h-4" />
+            <span>{isUpgrading ? 'Activando...' : 'Activar Modo Vendedor'}</span>
+          </button>
+        ) : (
+          <button
+            onClick={openPublishModal}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-sm rounded-xl shadow-md transition-all cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Publicar Nuevo Artículo</span>
+          </button>
+        )}
       </div>
+
+      {/* Buyer notice banner if user is buyer */}
+      {currentUser.userType === 'buyer' && currentUser.role !== 'admin' && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-900">
+            <Store className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              Tienes una cuenta de <strong>Comprador</strong>. Puedes explorar publicaciones, guardar favoritos y contactar vendedores. Para comenzar a vender y publicar artículos, activa tu cuenta como vendedor en cualquier momento.
+            </span>
+          </div>
+          <button
+            disabled={isUpgrading}
+            onClick={async () => {
+              setIsUpgrading(true);
+              try {
+                await upgradeToSeller();
+              } finally {
+                setIsUpgrading(false);
+              }
+            }}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl whitespace-nowrap cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            {isUpgrading ? 'Activando...' : 'Activar Vendedor Gratis'}
+          </button>
+        </div>
+      )}
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-200 mb-6 gap-2 sm:gap-6 overflow-x-auto pb-1 text-sm font-bold">

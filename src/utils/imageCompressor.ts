@@ -4,7 +4,7 @@
  * and JPEG compression (0.8 quality) to prevent storage bloat and ensure fast loading.
  */
 
-export async function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.8): Promise<string> {
+export async function compressImage(file: File, maxWidth = 900, maxHeight = 900, quality = 0.65): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
