@@ -1,0 +1,6 @@
+{
+  "name": "Vende Todo en Hato Mayor",
+  "description": "Plataforma de compra y venta local en Hato Mayor, República Dominicana. Publica artículos, contacta por WhatsApp y encuentra ofertas en tu comunidad.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
