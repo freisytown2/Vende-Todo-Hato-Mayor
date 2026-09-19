@@ -34,8 +34,8 @@ const AppContent: React.FC = () => {
         {activeView === 'home' && <HomeView />}
         {activeView === 'search' && <SearchResults />}
         {activeView === 'listing-detail' && <ListingDetail />}
-        {activeView === 'publish' && <PublishListing />}
-        {activeView === 'user-dashboard' && <UserDashboard />}
+        {(activeView === 'publish' || activeView === 'edit-listing') && <PublishListing />}
+        {(activeView === 'user-dashboard' || activeView === 'favorites') && <UserDashboard />}
         {activeView === 'admin-panel' && <AdminPanel />}
         {activeView === 'seller-profile' && <SellerProfile />}
       </main>

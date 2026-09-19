@@ -17,8 +17,9 @@ export const ShareModal: React.FC = () => {
 
   if (!isShareModalOpen || !activeShareListing) return null;
 
-  // Build direct sharing link
-  const currentUrl = window.location.origin + window.location.pathname + `#item=${activeShareListing.id}`;
+  // Build direct clean sharing link (compatible with custom domain and preview)
+  const domainBase = window.location.origin;
+  const currentUrl = `${domainBase}/producto/${activeShareListing.id}`;
   const shareText = `Mira este artículo en Vende Todo en Hato Mayor: "${activeShareListing.title}" por solo ${formatRDPrice(activeShareListing.price)}. ¡Disponible en Hato Mayor!`;
 
   const handleCopy = () => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   formatRDPrice,
@@ -26,6 +26,7 @@ import {
   Edit3,
   Trash2,
   CheckCheck,
+  Loader2,
 } from 'lucide-react';
 
 export const ListingDetail: React.FC = () => {
@@ -44,24 +45,57 @@ export const ListingDetail: React.FC = () => {
     changeListingStatus,
     logContact,
     isMyListing,
+    fetchListingById,
   } = useApp();
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    return Boolean(selectedListingId && !listings.some((l) => l.id === selectedListingId));
+  });
 
   const listing = listings.find((l) => l.id === selectedListingId);
+
+  useEffect(() => {
+    if (selectedListingId && !listing) {
+      setIsLoading(true);
+      fetchListingById(selectedListingId).finally(() => {
+        setIsLoading(false);
+      });
+    } else if (listing) {
+      setIsLoading(false);
+      document.title = `${listing.title} - RD$ ${listing.price.toLocaleString()} | Vende Todo en Hato Mayor`;
+    }
+  }, [selectedListingId, listing, fetchListingById]);
+
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-24 text-center">
+        <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-spin">
+          <Loader2 className="w-7 h-7" />
+        </div>
+        <h2 className="text-xl font-black text-slate-900">Cargando publicación...</h2>
+        <p className="text-sm text-slate-500 mt-2">
+          Buscando detalles de este artículo en Hato Mayor...
+        </p>
+      </div>
+    );
+  }
 
   if (!listing) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+        <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-8 h-8" />
+        </div>
         <h2 className="text-xl font-bold text-slate-800">Publicación no encontrada</h2>
-        <p className="text-sm text-slate-500 mt-2">
-          Este artículo pudo haber sido eliminado o no está disponible.
+        <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
+          Este artículo no está disponible o pudo haber sido eliminado por su vendedor.
         </p>
         <button
           onClick={() => setActiveView('home')}
-          className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-500"
+          className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-500 transition-all cursor-pointer shadow-sm"
         >
-          Volver al inicio
+          Volver al inicio de Vende Todo
         </button>
       </div>
     );

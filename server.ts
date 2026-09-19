@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -111,6 +111,7 @@ interface ServerListing {
   sellerAvatar?: string;
   sellerJoinedDate: string;
   createdAt: string;
+  updatedAt?: string;
   views: number;
   isFeatured: boolean;
   isApproved: boolean;
@@ -209,6 +210,83 @@ app.get('/api/listings', (req: Request, res: Response) => {
   res.json(publicListings);
 });
 
+// 3.1 Get single shared listing by ID
+app.get('/api/listings/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const item = listingsCache.find((l) => l.id === id);
+  if (item) {
+    res.json(toPublicListing(item));
+  } else {
+    res.status(404).json({ error: 'Publicación no encontrada' });
+  }
+});
+
+// 3.2 Sync / merge collection of listings from Firestore or client cache
+app.post('/api/listings/sync', (req: Request, res: Response) => {
+  try {
+    const incoming = req.body;
+    if (Array.isArray(incoming) && incoming.length > 0) {
+      let modified = false;
+      for (const item of incoming) {
+        if (!item || !item.id) continue;
+        const ghostIds = ['list_1', 'list_2', 'list_3', 'list_4', 'list_5', 'list_6', 'list_7', 'list_8'];
+        if (ghostIds.includes(item.id)) continue;
+
+        const idx = listingsCache.findIndex((l) => l.id === item.id);
+        if (idx === -1) {
+          listingsCache.push({
+            id: item.id,
+            title: String(item.title || '').trim(),
+            description: String(item.description || '').trim(),
+            price: Number(item.price) || 0,
+            categoryId: String(item.categoryId || 'otros').trim(),
+            condition: String(item.condition || 'Usado').trim(),
+            images: Array.isArray(item.images) ? item.images : [],
+            phone: String(item.phone || '').trim(),
+            whatsapp: String(item.whatsapp || item.phone || '').trim(),
+            province: 'Hato Mayor',
+            municipality: String(item.municipality || 'Hato Mayor del Rey').trim(),
+            sector: String(item.sector || 'Centro').trim(),
+            meetingPlaceType: String(item.meetingPlaceType || 'public').trim(),
+            meetingPlaceDetails: String(item.meetingPlaceDetails || '').trim(),
+            status: item.status || 'Disponible',
+            sellerId: String(item.sellerId || 'unknown'),
+            sellerName: String(item.sellerName || 'Vendedor Hato Mayor').trim(),
+            sellerAvatar: item.sellerAvatar || '',
+            sellerJoinedDate: item.sellerJoinedDate || new Date().toISOString(),
+            createdAt: item.createdAt || new Date().toISOString(),
+            updatedAt: item.updatedAt || new Date().toISOString(),
+            views: Number(item.views) || 1,
+            isFeatured: Boolean(item.isFeatured),
+            isApproved: item.isApproved !== false,
+            sellerToken: item.sellerToken || `stk_sync_${Math.random().toString(36).slice(2, 8)}`,
+          });
+          modified = true;
+        } else {
+          const existingTime = new Date(listingsCache[idx].updatedAt || listingsCache[idx].createdAt || 0).getTime();
+          const incomingTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+          if (incomingTime >= existingTime) {
+            listingsCache[idx] = {
+              ...listingsCache[idx],
+              ...item,
+              sellerToken: listingsCache[idx].sellerToken || item.sellerToken,
+            };
+            modified = true;
+          }
+        }
+      }
+      if (modified) {
+        listingsCache.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        saveListings();
+      }
+    }
+    res.json({ success: true, count: listingsCache.length, listings: listingsCache.map(toPublicListing) });
+  } catch (err) {
+    console.error('Error syncing listings:', err);
+    res.status(500).json({ error: 'Error al sincronizar publicaciones' });
+  }
+});
+
 // 4. Create a new listing (shared to everyone in real time)
 app.post('/api/listings', (req: Request, res: Response) => {
   try {
@@ -242,15 +320,25 @@ app.post('/api/listings', (req: Request, res: Response) => {
       sellerName: String(data.sellerName || 'Vendedor Hato Mayor').trim(),
       sellerAvatar: data.sellerAvatar || '',
       sellerJoinedDate: data.sellerJoinedDate || new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       views: 1,
       isFeatured: Boolean(data.isFeatured),
       isApproved: true,
       sellerToken,
     };
 
-    // Prepend to list
-    listingsCache.unshift(newListing);
+    // Prepend or update if already present
+    const existingIndex = listingsCache.findIndex((l) => l.id === id);
+    if (existingIndex !== -1) {
+      listingsCache[existingIndex] = {
+        ...listingsCache[existingIndex],
+        ...newListing,
+        sellerToken: listingsCache[existingIndex].sellerToken || sellerToken,
+      };
+    } else {
+      listingsCache.unshift(newListing);
+    }
     saveListings();
 
     const publicListing = toPublicListing(newListing);
@@ -629,6 +717,52 @@ Sitemap: ${baseUrl}/sitemap.xml
 `;
   res.setHeader('Content-Type', 'text/plain');
   res.send(robots);
+});
+
+// Dynamic OpenGraph / Social preview route for WhatsApp, Facebook, and Twitter crawlers
+app.get(['/producto/:id', '/item/:id'], (req: Request, res: Response, next: NextFunction) => {
+  const userAgent = req.get('user-agent') || '';
+  const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|Pinterest|LinkedInBot|TelegramBot|Slackbot|Googlebot/i.test(userAgent);
+  
+  if (isCrawler) {
+    const { id } = req.params;
+    const listing = listingsCache.find((l) => l.id === id);
+    if (listing) {
+      const priceFormatted = new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', maximumFractionDigits: 0 }).format(listing.price);
+      const title = `${listing.title} - ${priceFormatted} | Vende Todo Hato Mayor`;
+      const desc = `${listing.description.slice(0, 150)}... Publicado en Hato Mayor del Rey por ${listing.sellerName}.`;
+      const image = listing.images && listing.images.length > 0 ? listing.images[0] : 'https://vendetodoenhatomayor.live/og-image.jpg';
+      const url = `https://${req.get('host') || 'vendetodoenhatomayor.live'}/producto/${listing.id}`;
+
+      const crawlerHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <meta name="description" content="${desc}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${url}">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${desc}">
+  <meta property="og:image" content="${image}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${desc}">
+  <meta name="twitter:image" content="${image}">
+  <meta http-equiv="refresh" content="0;url=/producto/${listing.id}">
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>${desc}</p>
+  <img src="${image}" alt="${listing.title}">
+</body>
+</html>`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(crawlerHtml);
+      return;
+    }
+  }
+  next();
 });
 
 // --- VITE / STATIC SERVING ---

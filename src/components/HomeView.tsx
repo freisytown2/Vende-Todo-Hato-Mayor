@@ -16,15 +16,17 @@ import {
 export const HomeView: React.FC = () => {
   const { listings, categories, setActiveView, setFilters, openPublishModal } = useApp();
 
-  // Featured items
-  const featuredListings = listings.filter(
-    (l) => l.isFeatured && l.status === 'Disponible' && l.isApproved
-  );
+  const isAvailable = (l: (typeof listings)[0]) =>
+    (!l.status || l.status === 'Disponible' || String(l.status).toLowerCase() === 'disponible') &&
+    l.isApproved !== false;
 
-  // Recent items (excluding featured from this block for variety, or showing all latest)
+  // Featured items
+  const featuredListings = listings.filter((l) => l.isFeatured && isAvailable(l));
+
+  // Recent items (all approved available publications, most recent first)
   const recentListings = listings
-    .filter((l) => l.status === 'Disponible' && l.isApproved)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .filter(isAvailable)
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
   const handleCategoryClick = (catId: string) => {
     setFilters((prev) => ({ ...prev, categoryId: catId, searchQuery: '' }));
@@ -139,7 +141,7 @@ export const HomeView: React.FC = () => {
 
           {recentListings.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {recentListings.slice(0, 8).map((listing) => (
+              {recentListings.slice(0, 36).map((listing) => (
                 <ListingCard key={listing.id} listing={listing} />
               ))}
             </div>

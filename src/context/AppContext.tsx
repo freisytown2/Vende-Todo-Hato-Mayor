@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Listing,
   Category,
@@ -12,6 +12,8 @@ import {
 import { INITIAL_CATEGORIES, INITIAL_LISTINGS, INITIAL_USERS } from '../data/initialData';
 import {
   fetchAllListings,
+  fetchSingleListing,
+  syncListingsWithBackend,
   createSharedListing,
   updateSharedListing,
   deleteSharedListing,
@@ -25,6 +27,8 @@ import {
 } from '../services/api';
 import {
   subscribeToListings,
+  getListingFromFirestore,
+  fetchAllListingsFromFirestore,
   saveListingToFirestore,
   deleteListingFromFirestore,
   updateListingStatusInFirestore,
@@ -117,6 +121,7 @@ interface AppContextType {
   myCreatedListingIds: string[];
   isLiveConnected: boolean;
   refreshListings: () => Promise<void>;
+  fetchListingById: (id: string) => Promise<Listing | null>;
 }
 
 const initialFilterState: FilterState = {
@@ -132,6 +137,106 @@ const initialFilterState: FilterState = {
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+
+// Helper to parse deep links, clean paths, query strings, and hashes
+export function parseInitialRoute(): {
+  view: AppView;
+  listingId: string | null;
+  sellerId: string | null;
+  categoryId?: string;
+  searchQuery?: string;
+} {
+  try {
+    const pathname = window.location.pathname || '';
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const urlParams = new URLSearchParams(search);
+
+    // 1. Direct path /producto/:id or /item/:id
+    const prodMatch = pathname.match(/^\/(?:producto|item|p)\/([^/?#]+)/i);
+    if (prodMatch && prodMatch[1]) {
+      return { view: 'listing-detail', listingId: decodeURIComponent(prodMatch[1]), sellerId: null };
+    }
+
+    // 2. Hash check: #item=xyz or #producto=xyz or #/producto/xyz
+    if (hash) {
+      const hashProd = hash.match(/(?:#item=|#producto=|#\/producto\/)([^&]+)/i);
+      if (hashProd && hashProd[1]) {
+        return { view: 'listing-detail', listingId: decodeURIComponent(hashProd[1]), sellerId: null };
+      }
+    }
+
+    // 3. Search query: ?producto=xyz or ?item=xyz
+    const queryProd = urlParams.get('producto') || urlParams.get('item');
+    if (queryProd) {
+      return { view: 'listing-detail', listingId: decodeURIComponent(queryProd), sellerId: null };
+    }
+
+    // 4. Other clean paths
+    if (pathname.startsWith('/publicar')) {
+      return { view: 'publish', listingId: null, sellerId: null };
+    }
+    if (pathname.startsWith('/mis-productos') || pathname.startsWith('/mis-publicaciones')) {
+      return { view: 'user-dashboard', listingId: null, sellerId: null };
+    }
+    if (pathname.startsWith('/favoritos')) {
+      return { view: 'favorites', listingId: null, sellerId: null };
+    }
+    if (pathname.startsWith('/admin')) {
+      return { view: 'admin-panel', listingId: null, sellerId: null };
+    }
+    if (pathname.startsWith('/buscar')) {
+      return {
+        view: 'search',
+        listingId: null,
+        sellerId: null,
+        categoryId: urlParams.get('categoria') || urlParams.get('category') || undefined,
+        searchQuery: urlParams.get('q') || undefined,
+      };
+    }
+    const sellerMatch = pathname.match(/^\/vendedor\/([^/?#]+)/i);
+    if (sellerMatch && sellerMatch[1]) {
+      return { view: 'seller-profile', listingId: null, sellerId: decodeURIComponent(sellerMatch[1]) };
+    }
+  } catch (err) {
+    console.error('URL parse error:', err);
+  }
+
+  return { view: 'home', listingId: null, sellerId: null };
+}
+
+export function syncUrl(view: AppView, listingId: string | null, sellerId: string | null, replace = false) {
+  try {
+    let targetPath = '/';
+    if (view === 'listing-detail' && listingId) {
+      targetPath = `/producto/${encodeURIComponent(listingId)}`;
+    } else if (view === 'publish') {
+      targetPath = '/publicar';
+    } else if (view === 'user-dashboard') {
+      targetPath = '/mis-productos';
+    } else if (view === 'favorites') {
+      targetPath = '/favoritos';
+    } else if (view === 'admin-panel') {
+      targetPath = '/admin-panel';
+    } else if (view === 'search') {
+      targetPath = '/buscar';
+    } else if (view === 'seller-profile' && sellerId) {
+      targetPath = `/vendedor/${encodeURIComponent(sellerId)}`;
+    } else if (view === 'edit-listing') {
+      targetPath = '/mis-productos';
+    }
+
+    if (window.location.pathname !== targetPath) {
+      if (replace) {
+        window.history.replaceState({ view, listingId, sellerId }, '', targetPath);
+      } else {
+        window.history.pushState({ view, listingId, sellerId }, '', targetPath);
+      }
+    }
+  } catch (e) {
+    console.warn('URL sync failed:', e);
+  }
+}
 
 const GHOST_LISTING_IDS = ['list_1', 'list_2', 'list_3', 'list_4', 'list_5', 'list_6', 'list_7', 'list_8'];
 const GHOST_USER_IDS = ['user_carlos', 'user_miguelina', 'user_ramon'];
@@ -162,6 +267,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [];
     }
   });
+
+  // Track explicitly deleted listings so stale caches or async syncs never resurrect them
+  const [deletedListingIds, setDeletedListingIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('vende_todo_deleted_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Deterministic listing merge function: preserves published items across reloads and syncs
+  const mergeListings = useCallback(
+    (current: Listing[], ...sources: (Listing[] | null | undefined)[]): Listing[] => {
+      const map = new Map<string, Listing>();
+
+      const addListingToMap = (item: Listing) => {
+        if (!item || !item.id) return;
+        if (GHOST_LISTING_IDS.includes(item.id)) return;
+        if (deletedListingIds.includes(item.id)) return;
+
+        const existing = map.get(item.id);
+        if (!existing) {
+          map.set(item.id, item);
+        } else {
+          // Keep the listing with the newer timestamp or updated fields
+          const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+          const incomingTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+          if (incomingTime >= existingTime) {
+            map.set(item.id, { ...existing, ...item });
+          }
+        }
+      };
+
+      // 1. Process sources first
+      for (const src of sources) {
+        if (Array.isArray(src)) {
+          for (const it of src) {
+            addListingToMap(it);
+          }
+        }
+      }
+
+      // 2. Process current in-memory items (ensures user's active additions/edits are never lost)
+      if (Array.isArray(current)) {
+        for (const it of current) {
+          addListingToMap(it);
+        }
+      }
+
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+    },
+    [deletedListingIds]
+  );
 
   // Categories
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -237,12 +398,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  // Deep linking: parse initial URL route
+  const initialRoute = parseInitialRoute();
+
   // Navigation and Filter state
-  const [activeView, setActiveView] = useState<AppView>('home');
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
-  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [activeView, setActiveViewState] = useState<AppView>(initialRoute.view);
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(initialRoute.listingId);
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(initialRoute.sellerId);
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
-  const [filters, setFilters] = useState<FilterState>(initialFilterState);
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    ...initialFilterState,
+    categoryId: initialRoute.categoryId || '',
+    searchQuery: initialRoute.searchQuery || '',
+  }));
+
+  const setActiveView = (view: AppView) => {
+    setActiveViewState(view);
+    syncUrl(view, selectedListingId, selectedSellerId);
+  };
 
   // Real-time synchronization state
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
@@ -265,17 +438,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 4500);
   };
 
-  // 1. Initial load from shared server + fallback to local cache
-  const refreshListings = async () => {
+  // Fetch a single listing by ID from memory, Firestore, or API
+  const fetchListingById = async (id: string): Promise<Listing | null> => {
+    if (!id) return null;
+    const existing = listings.find((l) => l.id === id);
+    if (existing) return existing;
+
+    // Try Firestore first (primary real-time database)
     try {
-      const serverListings = await fetchAllListings();
-      if (Array.isArray(serverListings) && serverListings.length > 0) {
-        setListings(serverListings);
+      const fromFirestore = await getListingFromFirestore(id);
+      if (fromFirestore) {
+        setListings((prev) => mergeListings(prev, [fromFirestore]));
+        return fromFirestore;
       }
+    } catch (e) {
+      console.warn('Firestore getListingFromFirestore notice:', e);
+    }
+
+    // Try server API
+    try {
+      const fromApi = await fetchSingleListing(id);
+      if (fromApi) {
+        setListings((prev) => mergeListings(prev, [fromApi]));
+        return fromApi;
+      }
+    } catch (e) {
+      console.warn('Backend fetchSingleListing notice:', e);
+    }
+
+    return null;
+  };
+
+  // Listen to browser Back and Forward navigation buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const current = parseInitialRoute();
+      setActiveViewState(current.view);
+      setSelectedListingId(current.listingId);
+      setSelectedSellerId(current.sellerId);
+      if (current.listingId) {
+        fetchListingById(current.listingId);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // If loaded directly with /producto/:id, fetch immediately
+  useEffect(() => {
+    if (initialRoute.listingId) {
+      fetchListingById(initialRoute.listingId);
+    }
+  }, []);
+
+  // 1. Initial load from shared server + Firebase Firestore in parallel with robust merging
+  const refreshListings = useCallback(async () => {
+    try {
+      const [serverResult, firestoreResult] = await Promise.allSettled([
+        fetchAllListings(),
+        fetchAllListingsFromFirestore(),
+      ]);
+
+      const serverList =
+        serverResult.status === 'fulfilled' && Array.isArray(serverResult.value)
+          ? serverResult.value
+          : [];
+      const firestoreList =
+        firestoreResult.status === 'fulfilled' && Array.isArray(firestoreResult.value)
+          ? firestoreResult.value
+          : [];
+
+      setListings((prev) => {
+        const merged = mergeListings(prev, firestoreList, serverList);
+        if (merged.length > 0) {
+          try {
+            localStorage.setItem('vende_todo_hm_listings', JSON.stringify(merged));
+          } catch {}
+          // Also sync any missing listings to the backend server cache
+          if (firestoreList.length > 0) {
+            syncListingsWithBackend(merged).catch(() => {});
+          }
+        }
+        return merged;
+      });
     } catch (err) {
       console.error('Error refreshing listings:', err);
     }
-  };
+  }, [mergeListings]);
 
   // Real-time Firebase Firestore synchronization
   useEffect(() => {
@@ -284,8 +533,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Subscribe to Firebase Firestore in real-time
     const unsubscribe = subscribeToListings(
       (firestoreListings) => {
-        if (Array.isArray(firestoreListings)) {
-          setListings(firestoreListings);
+        if (Array.isArray(firestoreListings) && firestoreListings.length > 0) {
+          setListings((prev) => {
+            const merged = mergeListings(prev, firestoreListings);
+            if (merged.length > 0) {
+              try {
+                localStorage.setItem('vende_todo_hm_listings', JSON.stringify(merged));
+              } catch {}
+            }
+            return merged;
+          });
           setIsLiveConnected(true);
         }
       },
@@ -305,18 +562,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (data.type === 'create') {
             const newListing: Listing = data.payload;
             setListings((prev) => {
-              if (prev.some((item) => item.id === newListing.id)) return prev;
-              return [newListing, ...prev];
+              const merged = mergeListings(prev, [newListing]);
+              try {
+                localStorage.setItem('vende_todo_hm_listings', JSON.stringify(merged));
+              } catch {}
+              return merged;
             });
             showToast(`📢 Nuevo artículo publicado: "${newListing.title}"`);
           } else if (data.type === 'update' || data.type === 'status') {
             const updated: Listing = data.payload;
-            setListings((prev) =>
-              prev.map((item) => (item.id === updated.id ? updated : item))
-            );
+            setListings((prev) => {
+              const updatedList = prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item));
+              try {
+                localStorage.setItem('vende_todo_hm_listings', JSON.stringify(updatedList));
+              } catch {}
+              return updatedList;
+            });
           } else if (data.type === 'delete') {
             const { id } = data.payload;
-            setListings((prev) => prev.filter((item) => item.id !== id));
+            setDeletedListingIds((prev) => {
+              const next = Array.from(new Set([...prev, id]));
+              try {
+                localStorage.setItem('vende_todo_deleted_ids', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+            setListings((prev) => {
+              const filtered = prev.filter((item) => item.id !== id);
+              try {
+                localStorage.setItem('vende_todo_hm_listings', JSON.stringify(filtered));
+              } catch {}
+              return filtered;
+            });
           }
         } catch (e) {
           console.error('SSE error parse:', e);
@@ -330,11 +607,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubscribe();
       eventSource?.close();
     };
-  }, []);
+  }, [mergeListings, refreshListings]);
 
-  // Auto-sync state to localStorage
+  // Auto-sync state to localStorage (only when listings has items so it never overwrites with empty array)
   useEffect(() => {
-    localStorage.setItem('vende_todo_hm_listings', JSON.stringify(listings));
+    if (listings.length > 0) {
+      try {
+        localStorage.setItem('vende_todo_hm_listings', JSON.stringify(listings));
+      } catch {}
+    }
   }, [listings]);
 
   useEffect(() => {
@@ -366,7 +647,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Nav actions
   const openListingDetail = (id: string) => {
     setSelectedListingId(id);
-    setActiveView('listing-detail');
+    setActiveViewState('listing-detail');
+    syncUrl('listing-detail', id, null);
+    fetchListingById(id);
     // Track views both locally and on the server
     recordListingView(id);
     setListings((prev) =>
@@ -377,7 +660,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const openSellerProfile = (sellerId: string) => {
     setSelectedSellerId(sellerId);
-    setActiveView('seller-profile');
+    setActiveViewState('seller-profile');
+    syncUrl('seller-profile', null, sellerId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -388,13 +672,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       openAuthModal('register');
       return;
     }
-    setActiveView('publish');
+    setActiveViewState('publish');
+    syncUrl('publish', null, null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const openEditListing = (listing: Listing) => {
     setEditingListing(listing);
-    setActiveView('edit-listing');
+    setActiveViewState('edit-listing');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -477,12 +762,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return '';
     }
 
-    const tempId = `list_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const finalListingId = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const chosenSellerName = data.sellerName?.trim() || currentUser.name || 'Vendedor Hato Mayor';
     const seller = currentUser;
 
     const fullListing: Listing = {
-      id: tempId,
+      id: finalListingId,
       ...data,
       sellerName: chosenSellerName,
       sellerId: seller.id,
@@ -494,44 +779,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isApproved: true,
     };
 
-    // Save directly to Firebase Firestore
+    // 1. Immediately update local state so the seller sees it right away and browser refresh retains it
+    setListings((prev) => {
+      const updated = [fullListing, ...prev.filter((item) => item.id !== finalListingId)];
+      try {
+        localStorage.setItem('vende_todo_hm_listings', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setMyCreatedListingIds((prev) => {
+      const next = Array.from(new Set([...prev, finalListingId]));
+      try {
+        localStorage.setItem('vende_todo_my_created_ids', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setDeletedListingIds((prev) => {
+      const next = prev.filter((id) => id !== finalListingId);
+      try {
+        localStorage.setItem('vende_todo_deleted_ids', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 2. Persist to Firebase Firestore
     saveListingToFirestore(fullListing).catch((err) => {
       console.warn('Firestore write warning:', err);
     });
 
-    // Persist to shared backend so it appears for EVERYONE in real time
+    // 3. Persist to shared backend with same finalListingId
     createSharedListing({
       ...data,
+      id: finalListingId,
       sellerName: chosenSellerName,
       sellerId: seller.id,
       sellerJoinedDate: seller.joinedDate,
     })
       .then((res) => {
-        const savedListing = res.listing;
-        setListings((prev) => {
-          if (prev.some((item) => item.id === savedListing.id)) {
-            return prev.map((item) => (item.id === savedListing.id ? savedListing : item));
-          }
-          return [savedListing, ...prev];
-        });
-        setMyCreatedListingIds((prev) => {
-          const next = Array.from(new Set([...prev, savedListing.id]));
-          localStorage.setItem('vende_todo_my_created_ids', JSON.stringify(next));
-          return next;
-        });
-        openListingDetail(savedListing.id);
-        // Automatically pop up the share dialog so the seller can share their publication on WhatsApp!
-        setTimeout(() => {
-          openShareModal(savedListing);
-        }, 600);
+        if (res?.listing) {
+          const savedListing = res.listing;
+          setListings((prev) => {
+            const merged = mergeListings(prev, [savedListing]);
+            try {
+              localStorage.setItem('vende_todo_hm_listings', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
       })
       .catch((err) => {
-        console.error('Error creating shared listing:', err);
-        showToast(err.message || 'Error al guardar en el servidor');
+        console.warn('Server listing create notice:', err);
       });
 
+    // 4. Open publication detail with clean URL
+    openListingDetail(finalListingId);
+
+    // 5. Automatically pop up the share dialog so the seller has the direct WhatsApp link right away!
+    setTimeout(() => {
+      openShareModal(fullListing);
+    }, 450);
+
     showToast('¡Tu publicación ha sido subida y ya está visible para todos en Hato Mayor!');
-    return tempId;
+    return finalListingId;
   };
 
   const updateListing = (id: string, updatedFields: Partial<Listing>) => {
@@ -563,21 +872,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteListing = (id: string) => {
-    // Optimistic local update
-    setListings((prev) => prev.filter((item) => item.id !== id));
-    setMyCreatedListingIds((prev) => prev.filter((i) => i !== id));
+    // 1. Mark as deleted locally and in deletedListingIds
+    setDeletedListingIds((prev) => {
+      const next = Array.from(new Set([...prev, id]));
+      try {
+        localStorage.setItem('vende_todo_deleted_ids', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setMyCreatedListingIds((prev) => {
+      const next = prev.filter((i) => i !== id);
+      try {
+        localStorage.setItem('vende_todo_my_created_ids', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setListings((prev) => {
+      const filtered = prev.filter((item) => item.id !== id);
+      try {
+        localStorage.setItem('vende_todo_hm_listings', JSON.stringify(filtered));
+      } catch {}
+      return filtered;
+    });
 
-    // Firestore deletion
+    // 2. Firestore deletion
     deleteListingFromFirestore(id).catch((err) => {
       console.warn('Firestore delete warning:', err);
     });
 
-    // Shared server deletion (checks seller token)
+    // 3. Shared server deletion (checks seller token)
     deleteSharedListing(id)
       .then(() => {
         showToast('Publicación eliminada');
         if (selectedListingId === id) {
-          setActiveView('home');
+          setActiveViewState('home');
+          syncUrl('home', null, null);
+          setSelectedListingId(null);
         }
       })
       .catch((err) => {
@@ -859,7 +1189,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('vende_todo_hm_active_user');
     localStorage.removeItem('vende_todo_hm_current_user_id');
     localStorage.removeItem('vende_todo_admin_token');
-    setActiveView('home');
+    setActiveViewState('home');
+    syncUrl('home', null, null);
     setSelectedListingId(null);
     setEditingListing(null);
     setIntendedActionAfterAuth(null);
@@ -944,6 +1275,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         myCreatedListingIds,
         isLiveConnected,
         refreshListings,
+        fetchListingById,
       }}
     >
       {children}

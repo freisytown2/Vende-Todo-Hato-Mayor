@@ -72,10 +72,9 @@ export function subscribeToListings(
   onError?: (err: Error) => void
 ): () => void {
   const listingsCol = collection(db, 'listings');
-  const q = query(listingsCol, orderBy('createdAt', 'desc'));
 
   const unsubscribe = onSnapshot(
-    q,
+    listingsCol,
     (snapshot) => {
       const items: Listing[] = [];
       snapshot.forEach((docSnap) => {
@@ -84,7 +83,7 @@ export function subscribeToListings(
           id: docSnap.id,
           title: data.title || '',
           description: data.description || '',
-          price: typeof data.price === 'number' ? data.price : 0,
+          price: typeof data.price === 'number' ? data.price : (Number(data.price) || 0),
           categoryId: data.categoryId || 'otros',
           condition: data.condition || 'Usado',
           images: Array.isArray(data.images) ? data.images : [],
@@ -108,15 +107,106 @@ export function subscribeToListings(
           sellerRole: data.sellerRole || 'seller',
         });
       });
+      // Sort newest first
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       onUpdate(items);
     },
     (err) => {
       handleFirestoreError(err, OperationType.LIST, 'listings');
-      if (onError) onError(err);
+      if (onError && err instanceof Error) onError(err);
     }
   );
 
   return unsubscribe;
+}
+
+/**
+ * Fetch a single listing directly from Firestore by ID (for deep links and individual pages)
+ */
+export async function getListingFromFirestore(listingId: string): Promise<Listing | null> {
+  try {
+    const docRef = doc(db, 'listings', listingId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        id: snap.id,
+        title: data.title || '',
+        description: data.description || '',
+        price: typeof data.price === 'number' ? data.price : 0,
+        categoryId: data.categoryId || 'otros',
+        condition: data.condition || 'Usado',
+        images: Array.isArray(data.images) ? data.images : [],
+        phone: data.phone || '',
+        whatsapp: data.whatsapp || data.phone || '',
+        province: data.province || 'Hato Mayor',
+        municipality: data.municipality || 'Hato Mayor del Rey',
+        sector: data.sector || 'Centro de Hato Mayor',
+        meetingPlaceType: data.meetingPlaceType || 'public',
+        meetingPlaceDetails: data.meetingPlaceDetails || '',
+        status: (data.status as ItemStatus) || 'Disponible',
+        sellerId: data.sellerId || 'unknown',
+        sellerName: data.sellerName || 'Vendedor',
+        sellerAvatar: data.sellerAvatar,
+        sellerJoinedDate: data.sellerJoinedDate || new Date().toISOString(),
+        createdAt: data.createdAt || new Date().toISOString(),
+        views: typeof data.views === 'number' ? data.views : 0,
+        isFeatured: Boolean(data.isFeatured),
+        isApproved: data.isApproved !== false,
+        updatedAt: data.updatedAt,
+        sellerRole: data.sellerRole || 'seller',
+      };
+    }
+    return null;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `listings/${listingId}`);
+    return null;
+  }
+}
+
+/**
+ * Fetch all listings from Firestore directly with one-time getDocs
+ */
+export async function fetchAllListingsFromFirestore(): Promise<Listing[]> {
+  try {
+    const listingsCol = collection(db, 'listings');
+    const snap = await getDocs(listingsCol);
+    const items: Listing[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      items.push({
+        id: docSnap.id,
+        title: data.title || '',
+        description: data.description || '',
+        price: typeof data.price === 'number' ? data.price : 0,
+        categoryId: data.categoryId || 'otros',
+        condition: data.condition || 'Usado',
+        images: Array.isArray(data.images) ? data.images : [],
+        phone: data.phone || '',
+        whatsapp: data.whatsapp || data.phone || '',
+        province: data.province || 'Hato Mayor',
+        municipality: data.municipality || 'Hato Mayor del Rey',
+        sector: data.sector || 'Centro de Hato Mayor',
+        meetingPlaceType: data.meetingPlaceType || 'public',
+        meetingPlaceDetails: data.meetingPlaceDetails || '',
+        status: (data.status as ItemStatus) || 'Disponible',
+        sellerId: data.sellerId || 'unknown',
+        sellerName: data.sellerName || 'Vendedor',
+        sellerAvatar: data.sellerAvatar,
+        sellerJoinedDate: data.sellerJoinedDate || new Date().toISOString(),
+        createdAt: data.createdAt || new Date().toISOString(),
+        views: typeof data.views === 'number' ? data.views : 0,
+        isFeatured: Boolean(data.isFeatured),
+        isApproved: data.isApproved !== false,
+        updatedAt: data.updatedAt,
+        sellerRole: data.sellerRole || 'seller',
+      });
+    });
+    return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'listings');
+    return [];
+  }
 }
 
 /**
